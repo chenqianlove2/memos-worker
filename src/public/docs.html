@@ -263,6 +263,7 @@
 		<div id="editor"><!-- Quill editor mounts here --></div>
 		<div id="editor-actions">
 			<button id="theme-toggle-btn" class="action-btn" title="Toggle Theme"><i class="fas fa-moon"></i></button>
+			<button id="lang-toggle-btn" class="action-btn" title="Switch Language">EN</button>
 			<button id="save-btn" disabled><i class="fas fa-save"></i> Save</button>
 			<a href="/" class="action-btn" title="Back to Home" target="_blank"><i class="fas fa-arrow-up-right-from-square"></i></a>
 		</div>
@@ -301,10 +302,10 @@
 	};
 	const mockApi = {
 		getTree: () => Promise.resolve(mockData.tree),
-		getNode: (id) => Promise.resolve(mockData.nodes[id] || {id, content: `<h1>未找到文档 ${id}</h1>`}),
+		getNode: (id) => Promise.resolve(mockData.nodes[id] || {id, content: `<h1>${t('docNotFound', {id})}</h1>`}),
 		createNode: (data) => {
 			const newNode = {...data, id: `new-${Date.now()}`};
-			if (data.type === 'file') { mockData.nodes[newNode.id] = {id: newNode.id, content: `<h1>${data.title}</h1><p>开始写作...</p>`}; }
+			if (data.type === 'file') { mockData.nodes[newNode.id] = {id: newNode.id, content: `<h1>${data.title}</h1><p>${t('startWriting')}</p>`}; }
 			return Promise.resolve(newNode);
 		},
 		saveNode: (id, content) => { if(mockData.nodes[id]) mockData.nodes[id].content = content; return Promise.resolve({success: true}); },
@@ -319,7 +320,7 @@
 		if (!response.ok) {
 			// Try to parse a JSON error message from the backend, otherwise use status text
 			const errorData = await response.json().catch(() => ({ message: response.statusText }));
-			throw new Error(errorData.message || 'An unknown API error occurred');
+			throw new Error(errorData.message || t('unknownApiError'));
 		}
 		// For DELETE requests or other successful requests with no content
 		if (response.status === 204) {
@@ -362,10 +363,95 @@
 		}).then(handleApiResponse),
 	};
 
+	let currentLang = localStorage.getItem('memos-docs-lang') || 'zh';
+	const translations = {
+		en: {
+			docs: 'Docs',
+			createDoc: 'Create Doc',
+			createFolder: 'Create Folder',
+			outline: 'Outline',
+			save: 'Save',
+			saved: 'Saved',
+			saving: 'Saving...',
+			error: 'Error',
+			rename: 'Rename',
+			move: 'Move (Drag & Drop)',
+			delete: 'Delete',
+			toggleTheme: 'Toggle Theme',
+			backToHome: 'Back to Home',
+			switchLang: 'Switch Language',
+			newDocName: 'New doc name:',
+			newFolderName: 'New folder name:',
+			deleteConfirm: 'delete "{name}"?',
+			newName: 'New name:',
+			noDocs: 'NO docs',
+			createANewNote: 'Create a new note to get started.',
+			loadFailed: 'Load Failed',
+			allDocsDeleted: 'All docs deleted',
+			noHeadings: 'No headings found.',
+			startWriting: 'Start writing...',
+			uploadingImage: 'Uploading image...',
+			imageUploadFailed: 'Image upload failed',
+			docNotFound: 'Document {id} not found',
+			unknownApiError: 'An unknown API error occurred',
+			localUploadFailed: 'Local upload failed',
+			imgurClientIdNotConfigured: 'Imgur Client ID is not configured in Memos settings.',
+			imgurProxyFailed: 'Imgur proxy failed',
+			unknownUploadDestination: 'Unknown upload destination',
+		},
+		zh: {
+			docs: '文档',
+			createDoc: '新建文档',
+			createFolder: '新建文件夹',
+			outline: '大纲',
+			save: '保存',
+			saved: '已保存',
+			saving: '保存中...',
+			error: '错误',
+			rename: '重命名',
+			move: '移动 (拖拽)',
+			delete: '删除',
+			toggleTheme: '切换主题',
+			backToHome: '返回主页',
+			switchLang: '切换语言',
+			newDocName: '新文档名称：',
+			newFolderName: '新文件夹名称：',
+			deleteConfirm: '删除 "{name}"？',
+			newName: '新名称：',
+			noDocs: '暂无文档',
+			createANewNote: '创建一个新笔记开始使用。',
+			loadFailed: '加载失败',
+			allDocsDeleted: '所有文档已删除',
+			noHeadings: '未找到标题。',
+			startWriting: '开始写作...',
+			uploadingImage: '上传图片中...',
+			imageUploadFailed: '图片上传失败',
+			docNotFound: '未找到文档 {id}',
+			unknownApiError: '发生未知 API 错误',
+			localUploadFailed: '本地上传失败',
+			imgurClientIdNotConfigured: 'Imgur Client ID 未在 Memos 设置中配置。',
+			imgurProxyFailed: 'Imgur 代理上传失败',
+			unknownUploadDestination: '未知的上传目标',
+		}
+	};
+	function t(key, replacements) {
+		let str = translations[currentLang]?.[key] || key;
+		if (typeof replacements === 'string') {
+			str = str.replace(/{[^}]+}/, replacements);
+		} else if (replacements && typeof replacements === 'object') {
+			for (const [k, v] of Object.entries(replacements)) {
+				str = str.replace(new RegExp(`{${k}}`, 'g'), v);
+			}
+		}
+		return str;
+	}
+
 	// --- MAIN APPLICATION LOGIC ---
 	async function main() {
 		let activeNoteId = null;
 		let selectedNodeId = null;
+		let editorPlaceholderType = null;
+		let lastErrorMessage = '';
 		let flatNodes = [];
 		const collapsedFolderIds = new Set();
 		let quill;
@@ -406,13 +492,13 @@
 						method: 'POST',
 						body: formData,
 					});
-					if (!response.ok) throw new Error(`Local upload failed: ${await response.text()}`);
+					if (!response.ok) throw new Error(`${t('localUploadFailed')}: ${await response.text()}`);
 					const result = await response.json();
 					return result.url;
 
 				} else if (destination === 'imgur') {
 					if (!userSettings.imgurClientId) {
-						throw new Error("Imgur Client ID is not configured in Memos settings.");
+						throw new Error(t('imgurClientIdNotConfigured'));
 					}
 					const formData = new FormData();
 					formData.append('file', file);
@@ -426,12 +512,12 @@
 
 					if (!response.ok) {
 						const errorResult = await response.json();
-						throw new Error(`Imgur proxy failed: ${errorResult.message || 'Unknown error'}`);
+						throw new Error(`${t('imgurProxyFailed')}: ${errorResult.message || t('error')}`);
 					}
 					const result = await response.json();
 					return result.url;
 				} else {
-					throw new Error(`Unknown upload destination: ${destination}`);
+					throw new Error(`${t('unknownUploadDestination')}: ${destination}`);
 				}
 			} catch (error) {
 				console.error("Image upload failed:", error);
@@ -476,7 +562,7 @@
 				headings.push({ level, text, id });
 			});
 			if (headings.length === 0) {
-				outlineContainer.innerHTML = '<p style="text-align: center; color: var(--text-muted-color); font-size: 14px; padding: 20px;">No headings found.</p>';
+				outlineContainer.innerHTML = '<p style="text-align: center; color: var(--text-muted-color); font-size: 14px; padding: 20px;">' + t('noHeadings') + '</p>';
 				return;
 			}
 			const outlineHtml = `<ul>${headings.map(h => `<li class="outline-item outline-item-h${h.level}"><a href="#${h.id}">${h.text}</a></li>`).join('')}</ul>`;
@@ -803,7 +889,7 @@
 			editor.on('text-change', (delta, oldDelta, source) => {
 				if (source === 'user' && activeNoteId && saveBtn.disabled) {
 					saveBtn.disabled = false;
-					saveBtn.innerHTML = "<i class='fas fa-save'></i> Save";
+					updateSaveBtn('save');
 				}
 				setTimeout(updateOutline, 300);
 				if (source === 'user') {
@@ -838,7 +924,7 @@
 					if (!range) return;
 
 					// 1. Insert a placeholder
-					const placeholderText = '[Uploading image...]';
+					const placeholderText = '[' + t('uploadingImage') + ']';
 					editor.insertText(range.index, placeholderText, 'user');
 					const placeholderLength = placeholderText.length;
 
@@ -855,7 +941,7 @@
 						// 4. Handle upload failure
 						console.error('Image upload failed:', error);
 						editor.deleteText(range.index, placeholderLength, 'user');
-						editor.insertText(range.index, '[Image upload failed]', { 'color': 'red' }, 'user');
+						editor.insertText(range.index, '[' + t('imageUploadFailed') + ']', { 'color': 'red' }, 'user');
 					}
 				}
 			});
@@ -870,7 +956,7 @@
 			await refreshFileTree();
 			const firstFile = flatNodes.find(node => node.type === 'file');
 			if (firstFile) await loadNote(firstFile.id);
-			else { quill.root.innerHTML = '<h1>NO docs</h1><p>Create a new note to get started.</p>'; setEditorEditable(false); }
+			else { editorPlaceholderType = 'empty'; quill.root.innerHTML = '<h1>' + t('noDocs') + '</h1><p>' + t('createANewNote') + '</p>'; setEditorEditable(false); }
 		}
 		async function loadNote(noteId) {
 			if (!noteId || noteId === activeNoteId) return;
@@ -883,9 +969,11 @@
 				quill.root.innerHTML = note.content || '';
 				updateOutline();
 				saveBtn.disabled = true;
-				saveBtn.innerHTML = '<i class=\'fas fa-check\'></i> Saved';
+				updateSaveBtn('saved');
 			} catch (error) {
-				quill.root.innerHTML = `<h1>加载失败</h1><p>${error.message}</p>`;
+				lastErrorMessage = error.message;
+				editorPlaceholderType = 'error';
+				quill.root.innerHTML = '<h1>' + t('loadFailed') + '</h1><p>' + error.message + '</p>';
 				activeNoteId = null;
 			} finally {
 				hideLoader();
@@ -895,30 +983,30 @@
 			if (!activeNoteId || saveBtn.disabled) return;
 			const content = quill.root.innerHTML;
 			saveBtn.disabled = true;
-			saveBtn.innerHTML = '<i class=\'fas fa-spinner fa-spin\'></i> Saving...';
+			updateSaveBtn('saving');
 			try {
 				await api.saveNode(activeNoteId, content);
-				saveBtn.innerHTML = '<i class=\'fas fa-check\'></i> Saved';
+				updateSaveBtn('saved');
 			} catch (error) {
-				saveBtn.innerHTML = '<i class=\'fas fa-times\'></i> Error';
-				setTimeout(() => { saveBtn.disabled = false; saveBtn.innerHTML = '<i class=\'fas fa-save\'></i> Save'; }, 2000);
+				updateSaveBtn('error');
+				setTimeout(() => { saveBtn.disabled = false; updateSaveBtn('save'); }, 2000);
 			}
 		}
 		async function handleDelete(nodeId) {
 			const nodeToDelete = flatNodes.find(n => n.id === nodeId);
-			if (!nodeToDelete || !confirm(`delete "${nodeToDelete.title}"?`)) return;
+			if (!nodeToDelete || !confirm(t('deleteConfirm', {name: nodeToDelete.title}))) return;
 			await api.deleteNode(nodeId);
 			await refreshFileTree();
 			if (nodeId === activeNoteId) {
 				activeNoteId = null; selectedNodeId = null;
 				const firstFile = flatNodes.find(n => n.type === 'file');
-				if (firstFile) await loadNote(firstFile.id); else { quill.root.innerHTML = '<h1>所有文档已删除</h1>'; setEditorEditable(false); }
+				if (firstFile) await loadNote(firstFile.id); else { editorPlaceholderType = 'deleted'; quill.root.innerHTML = '<h1>' + t('allDocsDeleted') + '</h1>'; setEditorEditable(false); }
 			}
 		}
 		async function handleRename(nodeId) {
 			const nodeToRename = flatNodes.find(n => n.id === nodeId);
 			if (!nodeToRename) return;
-			const newTitle = prompt('New name:', nodeToRename.title);
+			const newTitle = prompt(t('newName'), nodeToRename.title);
 			if (newTitle && newTitle.trim() && newTitle.trim() !== nodeToRename.title) {
 				await api.renameNode(nodeId, newTitle.trim());
 				await refreshFileTree();
@@ -956,13 +1044,15 @@
 			return selectedNode ? (selectedNode.type === 'folder' ? selectedNode.id : selectedNode.parent_id) : null;
 		}
 		function setupEventListeners() {
+			const langToggleBtn = document.getElementById('lang-toggle-btn');
 			themeToggleBtn.addEventListener('click', handleThemeToggle);
+			langToggleBtn.addEventListener('click', () => applyLanguage(currentLang === 'zh' ? 'en' : 'zh'));
 			saveBtn.addEventListener('click', saveActiveNote);
 			renameBtn.addEventListener('click', () => handleRename(selectedNodeId));
 			deleteBtn.addEventListener('click', () => handleDelete(selectedNodeId));
 			document.addEventListener('click', () => contextMenu.style.display = 'none');
-			newNoteBtn.addEventListener('click', async () => { const name = prompt('New doc name:'); if (name) { await api.createNode({type: 'file', title: name, parent_id: getParentIdForNewNode()}); await refreshFileTree(); } });
-			newFolderBtn.addEventListener('click', async () => { const name = prompt('New folder name:'); if (name) { await api.createNode({type: 'folder', title: name, parent_id: getParentIdForNewNode()}); await refreshFileTree(); } });
+			newNoteBtn.addEventListener('click', async () => { const name = prompt(t('newDocName')); if (name) { await api.createNode({type: 'file', title: name, parent_id: getParentIdForNewNode()}); await refreshFileTree(); } });
+			newFolderBtn.addEventListener('click', async () => { const name = prompt(t('newFolderName')); if (name) { await api.createNode({type: 'folder', title: name, parent_id: getParentIdForNewNode()}); await refreshFileTree(); } });
 			fileTreeEl.addEventListener('click', e => {
 				const target = e.target.closest('.tree-item'); if (!target) return;
 				const id = target.dataset.id;
@@ -995,9 +1085,58 @@
 			setupResizer('resizer-left', 'sidebar-left', 'left'); setupResizer('resizer-right', 'sidebar-right', 'right');
 		}
 
+		function updateSaveBtn(state) {
+			saveBtn.dataset.state = state;
+			const icons = { save: 'fa-save', saved: 'fa-check', saving: 'fa-spinner fa-spin', error: 'fa-times' };
+			saveBtn.innerHTML = '<i class=\'fas ' + icons[state] + '\'></i> ' + t(state);
+		}
+
+		function applyLanguage(lang) {
+			currentLang = lang;
+			localStorage.setItem('memos-docs-lang', lang);
+			document.documentElement.lang = lang === 'zh' ? 'zh-CN' : 'en';
+			document.title = t('docs');
+
+			document.querySelector('#sidebar-left .sidebar-header h2').textContent = t('docs');
+			document.getElementById('new-note-btn').title = t('createDoc');
+			document.getElementById('new-folder-btn').title = t('createFolder');
+			document.querySelector('#sidebar-right .sidebar-header h2').textContent = t('outline');
+
+			document.getElementById('theme-toggle-btn').title = t('toggleTheme');
+			const langBtn = document.getElementById('lang-toggle-btn');
+			if (langBtn) {
+				langBtn.textContent = lang === 'zh' ? 'EN' : '中';
+				langBtn.title = t('switchLang');
+			}
+			const homeLink = document.querySelector('a[href="/"]');
+			if (homeLink) homeLink.title = t('backToHome');
+
+			const currentState = saveBtn.dataset.state || 'save';
+			updateSaveBtn(currentState);
+
+			document.getElementById('ctx-rename-btn').innerHTML = '<i class=\'fas fa-edit\'></i> ' + t('rename');
+			document.getElementById('ctx-move-btn').innerHTML = '<i class=\'fas fa-arrows-alt\'></i> ' + t('move');
+			document.getElementById('ctx-delete-btn').innerHTML = '<i class=\'fas fa-trash-alt\'></i> ' + t('delete');
+
+			updateOutline();
+
+			if (!activeNoteId && quill) {
+				if (editorPlaceholderType === 'error') {
+					quill.root.innerHTML = '<h1>' + t('loadFailed') + '</h1><p>' + lastErrorMessage + '</p>';
+				} else if (editorPlaceholderType === 'deleted') {
+					quill.root.innerHTML = '<h1>' + t('allDocsDeleted') + '</h1>';
+				} else {
+					editorPlaceholderType = 'empty';
+					quill.root.innerHTML = '<h1>' + t('noDocs') + '</h1><p>' + t('createANewNote') + '</p>';
+					setEditorEditable(false);
+				}
+			}
+		}
+
 		const savedTheme = localStorage.getItem('docs-theme') || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
 		applyTheme(savedTheme);
 		quill = initializeEditor();
+		applyLanguage(currentLang);
 		setupEventListeners();
 		setupResizers();
 		await initializeDocs();

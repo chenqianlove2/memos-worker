@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang='en'>
+<html lang='zh'>
 <head>
 	<meta charset='UTF-8'>
 	<meta name='viewport' content='width=device-width, initial-scale=1.0'>
@@ -38,8 +38,10 @@
 	color: inherit;
 	text-decoration: none;
   }
+  .header-actions { display: flex; align-items: center; gap: 0.5rem; }
   .icon-btn { background: none; border: none; padding: 0; cursor: pointer; width: 36px; height: 36px; border-radius: 50%; color: var(--text-secondary); display: flex; align-items: center; justify-content: center; transition: all .2s ease; }
   .icon-btn:hover { background-color: rgba(127, 127, 127, 0.2); color: var(--text-color); }
+  .lang-btn { font-size: 0.75rem; font-weight: 600; width: auto; padding: 0 0.5rem; border-radius: var(--border-radius-base); }
 
   .note {
 	background: rgba(255, 255, 255, 0.7);
@@ -88,8 +90,11 @@
 
 <div class="wrapper">
 	<header>
-		<h3><a href='https://github.com/souvenp/memos-worker' target="_blank">MEMOS</a></h3>
-		<button type='button' id='theme-toggle-btn' class='icon-btn' title='Toggle Theme'></button>
+		<h3><a href='https://github.com/souvenp/memos-worker' target="_blank" id="header-link">MEMOS</a></h3>
+		<div class="header-actions">
+			<button type='button' id='lang-toggle-btn' class='icon-btn lang-btn' title='Toggle Language'>中/EN</button>
+			<button type='button' id='theme-toggle-btn' class='icon-btn' title='Toggle Theme'></button>
+		</div>
 	</header>
 	<main id="main-content">
 		<div id="loader">
@@ -100,8 +105,64 @@
 
 <script>
 	const themeToggleBtn = document.getElementById('theme-toggle-btn');
+	const langToggleBtn = document.getElementById('lang-toggle-btn');
+	const headerLink = document.getElementById('header-link');
 	const mainContent = document.getElementById('main-content');
 	const loader = document.getElementById('loader');
+
+	const translations = {
+		en: {
+			memos: 'MEMOS',
+			toggleTheme: 'Toggle Theme',
+			toggleLanguage: 'Toggle Language',
+			error: 'Error:',
+			noShareId: 'No share ID found in URL parameters.',
+			failedToLoad: 'Failed to load note',
+			bytesZero: '0 Bytes',
+			bytesB: 'B',
+			bytesKB: 'KB',
+			bytesMB: 'MB',
+			bytesGB: 'GB'
+		},
+		zh: {
+			memos: 'MEMOS',
+			toggleTheme: '切换主题',
+			toggleLanguage: '切换语言',
+			error: '错误：',
+			noShareId: 'URL 参数中未找到分享 ID。',
+			failedToLoad: '加载笔记失败',
+			bytesZero: '0 字节',
+			bytesB: '字节',
+			bytesKB: 'KB',
+			bytesMB: 'MB',
+			bytesGB: 'GB'
+		}
+	};
+
+	let currentLang = localStorage.getItem('memos-share-lang') || 'zh';
+
+	const applyLanguage = (lang) => {
+		currentLang = lang;
+		document.documentElement.lang = lang;
+		localStorage.setItem('memos-share-lang', lang);
+		const t = translations[lang];
+		headerLink.textContent = t.memos;
+		themeToggleBtn.title = t.toggleTheme;
+		langToggleBtn.title = t.toggleLanguage;
+		langToggleBtn.textContent = lang === 'zh' ? '中/EN' : '中/EN';
+	};
+
+	langToggleBtn.addEventListener('click', () => {
+		const newLang = currentLang === 'zh' ? 'en' : 'zh';
+		applyLanguage(newLang);
+		// Re-render error message if load failed and is still visible
+		const errorPara = loader.querySelector('p');
+		if (errorPara && errorPara.style.color) {
+			// If an error is displayed, trigger a re-load to update the message
+			loader.innerHTML = '<div class="spinner"></div>';
+			loadNote();
+		}
+	});
 
 	// --- Theme Logic ---
 	const applyTheme = (theme) => {
@@ -128,8 +189,9 @@
 		});
 	}
 	const formatBytes = (b, d = 2) => {
-		if (!b || b === 0) return '0 Bytes';
-		const k = 1024, s = ['B', 'KB', 'MB', 'GB'];
+		const t = translations[currentLang];
+		if (!b || b === 0) return t.bytesZero;
+		const k = 1024, s = [t.bytesB, t.bytesKB, t.bytesMB, t.bytesGB];
 		const i = Math.floor(Math.log(b) / Math.log(k));
 		return parseFloat((b / Math.pow(k, i)).toFixed(d)) + ' ' + s[i];
 	};
@@ -175,12 +237,12 @@
 		try {
 			const urlParams = new URLSearchParams(window.location.search);
 			const publicId = urlParams.get('id');
-			if (!publicId) throw new Error("No share ID found in URL parameters.");
+			if (!publicId) throw new Error(translations[currentLang].noShareId);
 
 			const response = await fetch(`/api/public/note/${publicId}`);
 			if (!response.ok) {
 				const err = await response.json();
-				throw new Error(err.error || `Failed to load note (status: ${response.status})`);
+				throw new Error(err.error || `${translations[currentLang].failedToLoad} (status: ${response.status})`);
 			}
 			const noteData = await response.json();
 
@@ -189,7 +251,7 @@
 
 		} catch (error) {
 			console.error(error);
-			loader.innerHTML = `<p style="color: #e53e3e;">Error: ${error.message}</p>`;
+			loader.innerHTML = `<p style="color: #e53e3e;">${translations[currentLang].error} ${error.message}</p>`;
 		}
 	}
 
@@ -204,6 +266,7 @@
 		}
 	});
 
+	applyLanguage(currentLang);
 	loadNote();
 </script>
 
