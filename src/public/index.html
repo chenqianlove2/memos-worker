@@ -4951,12 +4951,11 @@
 	}
 
 	// --- 为菜单本身添加悬停逻辑，防止鼠标移入菜单时它消失 ---
-	notePopoverMenu.addEventListener('mouseenter', () => {
-		clearTimeout(popoverHoverTimer);
-	});
-
-	notePopoverMenu.addEventListener('mouseleave', () => {
-		hideNotePopover();
+	// 点击外部关闭 popover
+	document.addEventListener('click', (e) => {
+		if (!e.target.closest('#note-popover-menu') && !e.target.closest('.more-actions-btn')) {
+			hideNotePopover();
+		}
 	});
 
 	// --- 处理菜单项的点击事件 ---
@@ -8721,30 +8720,17 @@
 		}
 	});
 
-	notesContainer.addEventListener('mouseover', e => {
+	notesContainer.addEventListener('click', e => {
 		const noteElement = e.target.closest('.note');
 		if (!noteElement) return;
 		const noteId = noteElement.dataset.id;
 
 		const moreBtn = e.target.closest('.more-actions-btn');
 		if (moreBtn) {
+			e.stopPropagation();
 			showNotePopover(moreBtn, noteId);
 			return;
 		}
-		// const waterfallMoreBtn = e.target.closest('.waterfall-more-btn');
-		// if (waterfallMoreBtn) {
-		// 	showWaterfallPopover(waterfallMoreBtn, noteId);
-		// 	return;
-		// }
-	});
-
-	notesContainer.addEventListener('mouseout', e => {
-		if (e.target.closest('.more-actions-btn')) {
-			hideNotePopover();
-		}
-		// if (e.target.closest('.waterfall-more-btn')) {
-		// 	hideWaterfallPopover();
-		// }
 	});
 
 	function createFileTag(name, id = null) {
